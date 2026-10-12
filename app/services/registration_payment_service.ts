@@ -138,4 +138,23 @@ export default class RegistrationPaymentService {
       gatewayResponse: verification.data.gateway_response,
     }
   }
+
+  /**
+   * Process incoming Paystack Webhook event
+   */
+  async handleWebhook(rawBody: string, signature: string, payload: any) {
+    const isValidSignature = this.paystackService.verifyWebhookSignature(rawBody, signature)
+    if (!isValidSignature) {
+      throw new Error('Invalid webhook signature')
+    }
+
+    if (payload.event === 'charge.success') {
+      const reference = payload.data?.reference
+      if (reference) {
+        await this.verifyPayment(reference)
+      }
+    }
+
+    return { received: true }
+  }
 }

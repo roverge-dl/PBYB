@@ -15,9 +15,10 @@ router.group(() => {
   router.get('/referrals/leaderboard', '#controllers/referral_controller.leaderboard')
   router.post('/referrals/verify', '#controllers/referral_controller.verifyCode')
 
-  // Payment Webhook (unauthenticated, signature-verified)
+  // Payment Endpoints
   router.post('/payments/initialize', '#controllers/payment_controller.initialize')
   router.post('/payments/verify', '#controllers/payment_controller.verify')
+  router.post('/payments/webhook', '#controllers/payment_controller.webhook')
 
   // Protected Authenticated Routes
   router.group(() => {

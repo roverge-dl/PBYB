@@ -84,4 +84,29 @@ export default class PaymentController {
       })
     }
   }
+
+  /**
+   * Handle Paystack Webhook
+   */
+  async webhook({ request, response }: HttpContext) {
+    try {
+      const signature = request.header('x-paystack-signature') || ''
+      const rawBody = JSON.stringify(request.body())
+      const payload = request.body()
+
+      await this.paymentService.handleWebhook(rawBody, signature, payload)
+
+      return response.ok({
+        status: 'success',
+        message: 'Webhook processed successfully',
+      })
+    } catch (error: any) {
+      console.error('Webhook processing error:', error)
+      return response.badRequest({
+        status: 'fail',
+        message: error.message || 'Webhook processing failed',
+        error: error.message,
+      })
+    }
+  }
 }
