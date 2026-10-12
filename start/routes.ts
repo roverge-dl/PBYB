@@ -1,6 +1,19 @@
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 
+// ==========================================
+// Inertia Web Views
+// ==========================================
+router.get('/', '#controllers/web_controller.register')
+router.get('/register', '#controllers/web_controller.register')
+router.get('/leaderboard', '#controllers/web_controller.leaderboard')
+router
+  .get('/dashboard/pre-challenge', '#controllers/web_controller.preChallengeDashboard')
+  .use(middleware.auth())
+
+// ==========================================
+// JSON API Routes
+// ==========================================
 router.group(() => {
   // Public Guest Auth Routes
   router.group(() => {
