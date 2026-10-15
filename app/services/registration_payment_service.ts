@@ -89,8 +89,8 @@ export default class RegistrationPaymentService {
         // 1. Update Transaction record
         transaction.useTransaction(trx)
         transaction.status = 'success'
-        transaction.gatewayReference = verification.data.gateway_response
-        transaction.channel = verification.data.channel
+        transaction.gatewayReference = (verification.data as any).gateway_response
+        transaction.channel = (verification.data as any).channel
         transaction.paidAt = verification.data.paid_at ? DateTime.fromISO(verification.data.paid_at) : DateTime.now()
         transaction.metadata = verification.data.metadata
         await transaction.save()
@@ -135,7 +135,7 @@ export default class RegistrationPaymentService {
     return {
       verified: false,
       status: verification.data.status,
-      gatewayResponse: verification.data.gateway_response,
+      gatewayResponse: (verification.data as any).gateway_response,
     }
   }
 
@@ -156,5 +156,70 @@ export default class RegistrationPaymentService {
     }
 
     return { received: true }
+  }
+
+  /**
+   * Helper to simulate payment completion in development / test environments
+   */
+  async simulatePaymentSuccess(userIdentifier: string) {
+    return await db.transaction(async (trx) => {
+      const isEmail = userIdentifier.includes('@')
+      const user = isEmail
+        ? await User.query({ client: trx }).where('email', userIdentifier.toLowerCase().trim()).first()
+        : await User.query({ client: trx }).where('id', userIdentifier).first()
+
+      if (!user) {
+        throw new Error(`User ${userIdentifier} not found`)
+      }
+
+      const reference = `PBYB-DEMO-${Date.now()}`
+
+      // Create or update successful transaction
+      const transaction = new Transaction()
+      transaction.useTransaction(trx)
+      transaction.userId = user.id
+      transaction.reference = reference
+      transaction.amountKobo = REGISTRATION_FEE_KOBO
+      transaction.amountNaira = REGISTRATION_FEE_NAIRA
+      transaction.currency = 'NGN'
+      transaction.purpose = 'registration_fee'
+      transaction.gateway = 'paystack_demo'
+      transaction.status = 'success'
+      transaction.paidAt = DateTime.now()
+      await transaction.save()
+
+      // Mark user as paid & verified
+      user.useTransaction(trx)
+      user.isPaid = true
+      user.isVerified = true
+      await user.save()
+
+      // Activate pending referral
+      const referral = await Referral.query({ client: trx })
+        .where('referredId', user.id)
+        .where('status', 'pending')
+        .first()
+
+      if (referral) {
+        referral.useTransaction(trx)
+        referral.status = 'approved'
+        referral.commissionAmount = REFERRAL_COMMISSION_NAIRA
+        await referral.save()
+      }
+
+      return {
+        verified: true,
+        reference,
+        amount: REGISTRATION_FEE_NAIRA,
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          isPaid: user.isPaid,
+          isVerified: user.isVerified,
+        },
+      }
+    })
   }
 }

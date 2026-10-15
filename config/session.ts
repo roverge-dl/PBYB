@@ -13,11 +13,8 @@ export default defineConfig({
     secure: app.inProduction,
     sameSite: 'lax',
   },
-  store: env.get('SESSION_DRIVER', 'cookie'),
+  store: env.get('SESSION_DRIVER', 'cookie') as 'cookie' | 'memory',
   stores: {
     cookie: stores.cookie(),
-    redis: stores.redis({
-      connection: 'main',
-    }),
   },
 })

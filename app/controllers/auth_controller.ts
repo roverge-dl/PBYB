@@ -52,6 +52,7 @@ export default class AuthController {
         message: 'Registration successful',
         data: {
           user,
+          requiresVerification: true,
         },
       })
     } catch (error: any) {
@@ -59,6 +60,77 @@ export default class AuthController {
       return response.badRequest({
         status: 'fail',
         message: error.message || 'Registration failed. Please try again later.',
+        error: error.message,
+      })
+    }
+  }
+
+  /**
+   * Handle email verification via OTP
+   */
+  async verifyEmail({ request, response, auth }: HttpContext) {
+    try {
+      const { email, otp } = request.only(['email', 'otp'])
+      if (!email || !otp) {
+        return response.badRequest({
+          status: 'fail',
+          message: 'Email and verification code are required.',
+        })
+      }
+
+      const user = await this.authService.verifyEmail(email, otp)
+
+      // Ensure user is logged into session
+      await auth.use('web').login(user)
+
+      return response.ok({
+        status: 'success',
+        message: 'Email verified successfully!',
+        data: {
+          user: {
+            id: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            isVerified: user.isVerified,
+            isPaid: user.isPaid,
+          },
+        },
+      })
+    } catch (error: any) {
+      console.error('Verify email error:', error)
+      return response.badRequest({
+        status: 'fail',
+        message: error.message || 'Verification failed. Please check the code and try again.',
+        error: error.message,
+      })
+    }
+  }
+
+  /**
+   * Resend email verification OTP code
+   */
+  async resendVerification({ request, response }: HttpContext) {
+    try {
+      const { email } = request.only(['email'])
+      if (!email) {
+        return response.badRequest({
+          status: 'fail',
+          message: 'Email is required.',
+        })
+      }
+
+      await this.authService.sendEmailVerificationOtp(email)
+
+      return response.ok({
+        status: 'success',
+        message: 'Verification code resent successfully.',
+      })
+    } catch (error: any) {
+      console.error('Resend verification error:', error)
+      return response.badRequest({
+        status: 'fail',
+        message: error.message || 'Failed to resend code.',
         error: error.message,
       })
     }

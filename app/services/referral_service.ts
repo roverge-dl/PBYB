@@ -42,9 +42,9 @@ export default class ReferralService {
     const user = await User.findOrFail(userId)
 
     const [approvedCount, pendingCount, totalEarnedResult] = await Promise.all([
-      Referral.query().where('referrerId', user.id).where('status', 'approved').count('* as total'),
-      Referral.query().where('referrerId', user.id).where('status', 'pending').count('* as total'),
-      Referral.query().where('referrerId', user.id).where('status', 'approved').sum('commissionAmount as total'),
+      Referral.query().where('referrer_id', user.id).where('status', 'approved').count('* as total'),
+      Referral.query().where('referrer_id', user.id).where('status', 'pending').count('* as total'),
+      Referral.query().where('referrer_id', user.id).where('status', 'approved').sum('commission_amount as total'),
     ])
 
     const successfulReferrals = Number(approvedCount[0]?.$extras?.total || 0)

@@ -102,10 +102,84 @@ export default class AuthService {
         await referral.save()
       }
 
+      // Generate 6-digit OTP for email verification
+      const otp = Math.floor(100000 + Math.random() * 900000).toString()
+      const expiresAt = DateTime.now().plus({ minutes: 15 })
+
+      await trx.table('password_reset_tokens').insert({
+        id: crypto.randomUUID(),
+        email: user.email,
+        otp,
+        expires_at: expiresAt.toSQL(),
+        is_used: false,
+        created_at: DateTime.now().toSQL(),
+      })
+
+      // Send email via AWS SES (non-blocking)
+      this.mailService.sendOtpMail(user.email, user.firstName, otp).catch(console.error)
+
       return {
         user,
       }
     })
+  }
+
+  /**
+   * Generates and sends a new email verification code
+   */
+  async sendEmailVerificationOtp(email: string) {
+    const user = await User.findBy('email', email.toLowerCase().trim())
+    if (!user) {
+      return true
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString()
+    const expiresAt = DateTime.now().plus({ minutes: 15 })
+
+    await db.table('password_reset_tokens').insert({
+      id: crypto.randomUUID(),
+      email: user.email,
+      otp,
+      expires_at: expiresAt.toSQL(),
+      is_used: false,
+      created_at: DateTime.now().toSQL(),
+    })
+
+    await this.mailService.sendOtpMail(user.email, user.firstName, otp)
+    return true
+  }
+
+  /**
+   * Verifies user email with OTP code
+   */
+  async verifyEmail(email: string, otp: string) {
+    const cleanEmail = email.toLowerCase().trim()
+    const cleanOtp = otp.trim()
+
+    const token = await db
+      .from('password_reset_tokens')
+      .where('email', cleanEmail)
+      .where('otp', cleanOtp)
+      .where('is_used', false)
+      .where('expires_at', '>', DateTime.now().toSQL())
+      .orderBy('created_at', 'desc')
+      .first()
+
+    if (!token) {
+      throw new Error('Invalid or expired verification code.')
+    }
+
+    const user = await User.findByOrFail('email', cleanEmail)
+    user.isVerified = true
+    await user.save()
+
+    // Mark token as used
+    await db
+      .from('password_reset_tokens')
+      .where('id', token.id)
+      .update({ is_used: true, updated_at: DateTime.now().toSQL() })
+
+    return user
   }
 
   /**

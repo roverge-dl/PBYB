@@ -109,4 +109,50 @@ export default class PaymentController {
       })
     }
   }
+
+  /**
+   * Simulate payment success in dev/demo mode
+   */
+  async simulateSuccess({ request, response, auth }: HttpContext) {
+    try {
+      let email = request.input('email')
+      if (!email) {
+        const isAuth = await auth.use('web').check()
+        if (isAuth) {
+          email = auth.use('web').user?.email
+        }
+      }
+
+      if (!email) {
+        return response.badRequest({
+          status: 'fail',
+          message: 'Email or active session is required to simulate payment.',
+        })
+      }
+
+      const result = await this.paymentService.simulatePaymentSuccess(email)
+
+      // Re-login user to refresh session with isPaid = true
+      if (result?.user) {
+        const User = (await import('#models/user')).default
+        const user = await User.findBy('email', email.toLowerCase().trim())
+        if (user) {
+          await auth.use('web').login(user)
+        }
+      }
+
+      return response.ok({
+        status: 'success',
+        message: 'Payment completed successfully!',
+        data: result,
+      })
+    } catch (error: any) {
+      console.error('Simulate payment error:', error)
+      return response.badRequest({
+        status: 'fail',
+        message: error.message || 'Failed to simulate payment.',
+        error: error.message,
+      })
+    }
+  }
 }

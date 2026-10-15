@@ -1,214 +1,366 @@
-import React, { useState } from 'react'
-import { Head, Link, router } from '@inertiajs/react'
+import React, { useState, useEffect } from "react";
+import { Head, Link, router } from "@inertiajs/react";
+import { AuthLayout } from "../../components/auth/AuthLayout";
+import {
+  Button,
+  Input,
+  PasswordInput,
+  SocialButton,
+  FormErrorBanner,
+} from "../../components/ui";
+import { PencilLine } from "lucide-react";
+import { cn } from "../../lib/utils";
+import { useValidator, useLoadingState } from "../../hooks";
 
 interface RegisterProps {
-  referralCode?: string
+  referralCode?: string;
+  role?: string;
 }
 
-export default function Register({ referralCode = '' }: RegisterProps) {
-  const [role, setRole] = useState<'pregnant_mum' | 'nurse'>('pregnant_mum')
-  const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
-    email: '',
-    phoneNumber: '',
-    password: '',
-    referralCode: referralCode,
-  })
-  const [errors, setErrors] = useState<Record<string, string[]>>({})
-  const [isLoading, setIsLoading] = useState(false)
+export default function Register({
+  referralCode = "",
+  role: initialRole = "",
+}: RegisterProps) {
+  // Determine role from props or URL query parameter
+  const getResolvedRole = () => {
+    if (initialRole) return initialRole;
+    if (typeof window !== "undefined") {
+      const urlRole = new URLSearchParams(window.location.search).get("role");
+      if (urlRole) return urlRole;
+    }
+    return "pregnant_mum";
+  };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value })
-  }
+  const [role, setRole] = useState(getResolvedRole);
+
+  useEffect(() => {
+    if (initialRole) {
+      setRole(initialRole);
+    } else if (typeof window !== "undefined") {
+      const urlRole = new URLSearchParams(window.location.search).get("role");
+      if (urlRole) setRole(urlRole);
+    }
+  }, [initialRole]);
+
+  const [formData, setFormData] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    city: "",
+    referralCode: referralCode,
+    password: "",
+  });
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+
+  // Validation hook powered by validator.js
+  const {
+    errors,
+    errorList,
+    generalError,
+    validate,
+    setServerErrors,
+    clearError,
+    setGeneralError,
+    clearAllErrors,
+  } = useValidator();
+
+  // State-aware loading hook with safety watchdog
+  const { isLoading, startLoading, stopLoading } = useLoadingState(false, {
+    timeoutMs: 12000,
+    onTimeout: () => {
+      setGeneralError("Request timed out. Please check your network connection and try again.");
+    },
+  });
+
+  const handleChange = (field: string, value: string) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+    clearError(field);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsLoading(true)
-    setErrors({})
+    e.preventDefault();
+    clearAllErrors();
+
+    if (!agreedToTerms) {
+      setServerErrors({ terms: ["Please agree to the Terms and Conditions of Birthsafe."] });
+      return;
+    }
+
+    // 1. Run client-side validation using validator.js
+    const isValid = await validate([
+      {
+        input: { value: formData.firstName, field: "firstName", type: "text" },
+        rules: { required: true, min_length: 2 },
+        alias: "First name",
+      },
+      {
+        input: { value: formData.lastName, field: "lastName", type: "text" },
+        rules: { required: true, min_length: 2 },
+        alias: "Last name",
+      },
+      {
+        input: { value: formData.email, field: "email", type: "text" },
+        rules: { required: true, email: true },
+        alias: "Email address",
+      },
+      {
+        input: { value: formData.password, field: "password", type: "text" },
+        rules: {
+          required: true,
+          min_length: 8,
+          must_have_number: true,
+          has_special_character: true,
+        },
+        alias: "Password",
+      },
+    ]);
+
+    if (!isValid) {
+      // Validation failed: stop immediately, no eternal spinner
+      return;
+    }
+
+    // 2. Start state-aware loading
+    startLoading();
+
+    // Map UI role to backend allowed roles ('pregnant_mum' | 'nurse')
+    const backendRole =
+      role === "affiliate" || role === "nurse" ? "nurse" : "pregnant_mum";
 
     try {
-      const res = await fetch('/api/v1/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...formData, role }),
-      })
+      const res = await fetch("/api/v1/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include", // Ensure session cookies are sent and saved
+        body: JSON.stringify({
+          firstName: formData.firstName.trim(),
+          lastName: formData.lastName.trim(),
+          email: formData.email.trim(),
+          city: formData.city.trim(),
+          password: formData.password,
+          role: backendRole,
+          referralCode: formData.referralCode?.trim() || undefined,
+        }),
+      });
 
-      const data = await res.json()
+      const data = await res.json().catch(() => null);
 
       if (!res.ok) {
-        if (data.errors) {
-          setErrors(data.errors)
-        } else {
-          alert(data.message || 'Registration failed')
-        }
-        setIsLoading(false)
-        return
+        stopLoading("failed");
+        setServerErrors(data, "Registration failed. Please check your information.");
+        return;
       }
 
-      // Registration successful -> proceed to payment/dashboard
-      router.visit('/dashboard/pre-challenge')
+      // 3. Registration successful → redirect to email verification OTP screen
+      const encodedEmail = encodeURIComponent(formData.email.trim());
+      router.visit(`/verify-email?email=${encodedEmail}`, {
+        onSuccess: () => stopLoading("done"),
+        onError: () => {
+          stopLoading("failed");
+          setGeneralError("Session verification failed. Please try signing in directly.");
+        },
+        onFinish: () => stopLoading("done"),
+      });
     } catch (err: any) {
-      alert('An unexpected error occurred. Please try again.')
-      setIsLoading(false)
+      stopLoading("failed");
+      setGeneralError(err?.message || "An unexpected network error occurred. Please try again.");
     }
-  }
+  };
+
+  const roleLabel =
+    role === "affiliate" || role === "nurse"
+      ? "I'm an affiliate"
+      : "I'm a mum";
 
   return (
-    <div className="flex min-h-screen flex-col justify-center bg-slate-50 py-12 sm:px-6 lg:px-8">
-      <Head title="Join the PBYB Challenge" />
+    <AuthLayout heroTitle="Create Your Account">
+      <Head title="Create Your Account" />
 
-      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center px-4">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 mb-4">
-          <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-          </svg>
-        </div>
-        <h2 className="text-3xl font-extrabold tracking-tight text-slate-900">
-          Build Your Blood Challenge
-        </h2>
-        <p className="mt-2 text-sm text-slate-600">
-          14-Day Cohort to boost your PCV & protect your pregnancy
-        </p>
+      {/* Role badge — matches Figma dashboard 9 pill above the title */}
+      <div className="mb-4 -mt-2">
+        <button
+          type="button"
+          onClick={() =>
+            router.visit(`/get-started?role=${encodeURIComponent(role)}`)
+          }
+          className={cn(
+            "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold",
+            "bg-primary text-white hover:bg-primary-700 transition-colors",
+          )}
+          aria-label="Change user type">
+          {roleLabel}
+          <PencilLine size={12} strokeWidth={2.5} />
+        </button>
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4">
-        <div className="bg-white py-8 px-6 shadow-xl shadow-slate-200/50 rounded-3xl border border-slate-100 sm:px-10">
-          
-          {/* Role Switcher */}
-          <div className="mb-6">
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-              Select Your Role
-            </label>
-            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-2xl">
-              <button
-                type="button"
-                onClick={() => setRole('pregnant_mum')}
-                className={`py-2.5 text-xs font-bold rounded-xl transition-all ${
-                  role === 'pregnant_mum'
-                    ? 'bg-white text-emerald-700 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                🤰 Pregnant Mum
-              </button>
-              <button
-                type="button"
-                onClick={() => setRole('nurse')}
-                className={`py-2.5 text-xs font-bold rounded-xl transition-all ${
-                  role === 'nurse'
-                    ? 'bg-white text-emerald-700 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                🩺 Nurse Facilitator
-              </button>
-            </div>
-          </div>
+      {/* Form Error Banner */}
+      <FormErrorBanner
+        message={generalError}
+        onClose={() => clearAllErrors()}
+      />
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">First Name</label>
-                <input
-                  type="text"
-                  name="firstName"
-                  required
-                  value={formData.firstName}
-                  onChange={handleChange}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
-                  placeholder="e.g. Mary"
-                />
-                {errors.firstName && <p className="text-red-500 text-xs mt-1">{errors.firstName[0]}</p>}
-              </div>
+      {/* Google SSO — appears above the email form in dashboard 9 */}
+      <div className="mb-4">
+        <SocialButton
+          provider="google"
+          actionText="Sign in with"
+          onClick={() => {
+            alert(
+              "Google authentication will redirect to Google OAuth in production.",
+            );
+          }}
+        />
+      </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Last Name</label>
-                <input
-                  type="text"
-                  name="lastName"
-                  required
-                  value={formData.lastName}
-                  onChange={handleChange}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
-                  placeholder="e.g. Okon"
-                />
-                {errors.lastName && <p className="text-red-500 text-xs mt-1">{errors.lastName[0]}</p>}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
-              <input
-                type="email"
-                name="email"
-                required
-                value={formData.email}
-                onChange={handleChange}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
-                placeholder="mary@example.com"
-              />
-              {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email[0]}</p>}
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Phone Number (WhatsApp)</label>
-              <input
-                type="tel"
-                name="phoneNumber"
-                value={formData.phoneNumber}
-                onChange={handleChange}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
-                placeholder="08012345678"
-              />
-              {errors.phoneNumber && <p className="text-red-500 text-xs mt-1">{errors.phoneNumber[0]}</p>}
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Password</label>
-              <input
-                type="password"
-                name="password"
-                required
-                value={formData.password}
-                onChange={handleChange}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
-                placeholder="At least 8 chars with a number"
-              />
-              {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password[0]}</p>}
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Referral Code (Optional)</label>
-              <input
-                type="text"
-                name="referralCode"
-                value={formData.referralCode}
-                onChange={handleChange}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
-                placeholder="PB-XXXXX"
-              />
-            </div>
-
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="w-full flex justify-center py-3.5 px-4 rounded-xl text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-600/30 transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 disabled:opacity-50"
-              >
-                {isLoading ? 'Processing Registration...' : 'Continue to Registration (₦5,000)'}
-              </button>
-            </div>
-          </form>
-
-          <div className="mt-6 text-center text-xs text-slate-500">
-            Already have an account?{' '}
-            <Link href="/login" className="font-bold text-emerald-600 hover:text-emerald-500">
-              Sign In
-            </Link>
-          </div>
+      {/* Divider */}
+      <div className="relative my-5">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-neutral-200" />
+        </div>
+        <div className="relative flex justify-center text-xs">
+          <span className="bg-[#FDFBFD] px-3 text-neutral-400">
+            or sign up with your email
+          </span>
         </div>
       </div>
-    </div>
-  )
+
+      <form onSubmit={handleSubmit} noValidate className="space-y-4">
+        {/* First & Last Name */}
+        <div className="grid grid-cols-2 gap-3">
+          <Input
+            label="First Name"
+            placeholder="Sarah"
+            value={formData.firstName}
+            onChange={(e) => handleChange("firstName", e.target.value)}
+            error={errors.firstName}
+            required
+          />
+          <Input
+            label="Last Name"
+            placeholder="Udo"
+            value={formData.lastName}
+            onChange={(e) => handleChange("lastName", e.target.value)}
+            error={errors.lastName}
+            required
+          />
+        </div>
+
+        {/* Email Address */}
+        <Input
+          label="Email Address"
+          type="email"
+          placeholder="sarahudo@gmail.com"
+          value={formData.email}
+          onChange={(e) => handleChange("email", e.target.value)}
+          error={errors.email}
+          required
+        />
+
+        {/* City & Referral — side by side on one row to reduce form height */}
+        <div className="grid grid-cols-2 gap-3">
+          <Input
+            label="City of Residence"
+            placeholder="e.g. Lagos"
+            value={formData.city}
+            onChange={(e) => handleChange("city", e.target.value)}
+            error={errors.city}
+          />
+          <Input
+            label="Referral code (optional)"
+            placeholder="PB-XXXXX"
+            value={formData.referralCode}
+            onChange={(e) => handleChange("referralCode", e.target.value)}
+            error={errors.referralCode}
+          />
+        </div>
+
+        {/* Password */}
+        <PasswordInput
+          label="Password"
+          placeholder="Create a strong password"
+          value={formData.password}
+          onChange={(e) => handleChange("password", e.target.value)}
+          error={errors.password}
+          required
+        />
+
+        {/* Terms & Conditions checkbox */}
+        <div className="space-y-1">
+          <label className="flex items-start gap-2.5 cursor-pointer group select-none">
+            <div className="relative mt-0.5 flex-shrink-0">
+              <input
+                type="checkbox"
+                checked={agreedToTerms}
+                onChange={(e) => {
+                  setAgreedToTerms(e.target.checked);
+                  clearError("terms");
+                }}
+                className="sr-only peer"
+              />
+              <div
+                className={cn(
+                  "w-4 h-4 rounded border-2 flex items-center justify-center transition-colors",
+                  agreedToTerms
+                    ? "border-primary bg-primary"
+                    : "border-neutral-300 bg-white group-hover:border-primary/60",
+                  errors.terms && "border-red-400",
+                )}>
+                {agreedToTerms && (
+                  <svg
+                    viewBox="0 0 10 8"
+                    fill="none"
+                    className="w-2.5 h-2.5 text-white"
+                    aria-hidden="true">
+                    <path
+                      d="M1 4l2.5 2.5L9 1"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
+              </div>
+            </div>
+            <span className="text-xs text-neutral-600 leading-relaxed">
+              I agree to the{" "}
+              <a
+                href="#terms"
+                className="font-semibold text-primary hover:text-primary-700 underline decoration-primary/40 underline-offset-2 transition-colors"
+                onClick={(e) => e.stopPropagation()}>
+                Terms and conditions
+              </a>{" "}
+              of Birthsafe
+            </span>
+          </label>
+          {errors.terms && (
+            <p className="text-xs text-red-500 pl-6">{errors.terms}</p>
+          )}
+        </div>
+
+        {/* Submit Button: Disabled until agreedToTerms is true, state-aware loading */}
+        <div className="pt-1">
+          <Button
+            type="submit"
+            variant="primary"
+            size="lg"
+            fullWidth
+            disabled={!agreedToTerms || isLoading}
+            isLoading={isLoading}>
+            Sign Up
+          </Button>
+        </div>
+      </form>
+
+      {/* Switch to Login */}
+      <p className="mt-5 text-center text-xs text-neutral-600">
+        Already have an account?{" "}
+        <Link
+          href="/login"
+          className="font-semibold text-primary hover:text-primary-700 underline decoration-primary/40 underline-offset-2 transition-colors">
+          Sign In
+        </Link>
+      </p>
+    </AuthLayout>
+  );
 }

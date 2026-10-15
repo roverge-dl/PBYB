@@ -18,7 +18,7 @@ export default class Referral extends BaseModel {
   @column()
   declare referralCode: string
 
-  @column()
+  @column({ columnName: 'commission_amount' })
   declare commissionAmount: number
 
   @column()
