@@ -4,30 +4,49 @@ import { middleware } from '#start/kernel'
 // ==========================================
 // Inertia Web Views
 // ==========================================
-router.get('/', '#controllers/web_controller.getStarted').as('web.home')
-router.get('/get-started', '#controllers/web_controller.getStarted').as('web.get_started')
-router.get('/register', '#controllers/web_controller.register').as('web.register')
-router.get('/login', '#controllers/web_controller.login').as('web.login')
-router.get('/forgot-password', '#controllers/web_controller.forgotPassword').as('web.forgot_password')
+router.get('/', '#controllers/web_controller.referrals').as('web.home').use(middleware.auth())
+router
+  .get('/get-started', '#controllers/web_controller.getStarted')
+  .as('web.get_started')
+  .use(middleware.guest())
+router
+  .get('/register', '#controllers/web_controller.register')
+  .as('web.register')
+  .use(middleware.guest())
+router
+  .get('/login', '#controllers/web_controller.login')
+  .as('web.login')
+  .use(middleware.guest())
+router
+  .get('/forgot-password', '#controllers/web_controller.forgotPassword')
+  .as('web.forgot_password')
+  .use(middleware.guest())
 router.get('/verify-otp', '#controllers/web_controller.verifyOtp').as('web.verify_otp')
 router.get('/verify-email', '#controllers/web_controller.verifyEmail').as('web.verify_email')
-router.get('/reset-password', '#controllers/web_controller.resetPassword').as('web.reset_password')
+router
+  .get('/reset-password', '#controllers/web_controller.resetPassword')
+  .as('web.reset_password')
+  .use(middleware.guest())
 router.get('/payment', '#controllers/web_controller.payment').as('web.payment')
 router
   .get('/dashboard', '#controllers/web_controller.dashboard')
   .as('web.dashboard')
   .use(middleware.auth())
   .use(middleware.paid())
+  .use(middleware.mumOnly())
 router
   .get('/home', '#controllers/web_controller.dashboard')
   .as('web.home_dashboard')
   .use(middleware.auth())
   .use(middleware.paid())
-router.get('/leaderboard', '#controllers/web_controller.leaderboard')
+  .use(middleware.mumOnly())
+router.get('/referrals', '#controllers/web_controller.referrals').as('web.referrals').use(middleware.auth())
+router.get('/leaderboard', '#controllers/web_controller.leaderboard').as('web.leaderboard')
 router
   .get('/dashboard/pre-challenge', '#controllers/web_controller.preChallengeDashboard')
   .use(middleware.auth())
   .use(middleware.paid())
+  .use(middleware.mumOnly())
 router.get('/design-system', '#controllers/web_controller.designSystem')
 
 // ==========================================

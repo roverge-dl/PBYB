@@ -92,6 +92,7 @@ export default class AuthController {
             email: user.email,
             firstName: user.firstName,
             lastName: user.lastName,
+            role: user.role,
             isVerified: user.isVerified,
             isPaid: user.isPaid,
           },
@@ -190,7 +191,22 @@ export default class AuthController {
         })
       }
 
-      const { user, isNew } = await this.googleAuthService.authenticate(data)
+      const result = await this.googleAuthService.authenticate(data)
+
+      if (result.requiresRoleSelection) {
+        return response.ok({
+          status: 'success',
+          message: 'Role selection required for new user',
+          data: {
+            requiresRoleSelection: true,
+            email: result.email,
+            firstName: result.firstName,
+            lastName: result.lastName,
+          },
+        })
+      }
+
+      const { user, isNew } = result as { user: any; isNew: boolean }
 
       // Log user into session
       await auth.use('web').login(user)

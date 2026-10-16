@@ -23,8 +23,17 @@ export default class RegistrationPaymentService {
    */
   async initializePayment(email: string, userId?: string, callbackUrl?: string) {
     const user = userId
-      ? await User.findOrFail(userId)
+      ? ((await User.find(userId)) || (await User.findByOrFail('email', email.toLowerCase().trim())))
       : await User.findByOrFail('email', email.toLowerCase().trim())
+
+    if (user.isPaid) {
+      return {
+        alreadyPaid: true,
+        reference: '',
+        authorizationUrl: '/dashboard',
+        amount: REGISTRATION_FEE_NAIRA,
+      }
+    }
 
     const reference = `PBYB-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`
 
@@ -83,6 +92,7 @@ export default class RegistrationPaymentService {
             reference,
             amount: transaction.amountNaira,
             paidAt: transaction.paidAt,
+            userId: transaction.userId,
           }
         }
 

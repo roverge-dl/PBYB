@@ -19,6 +19,7 @@ export default function VerifyEmail({ email = "" }: VerifyEmailProps) {
   const [error, setError] = useState<string | null>(null);
   const [resendSuccess, setResendSuccess] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
+  const [verifiedUser, setVerifiedUser] = useState<{ role?: string; isPaid?: boolean } | null>(null);
 
   const verifyLoading = useLoadingState(false, {
     timeoutMs: 12000,
@@ -93,6 +94,11 @@ export default function VerifyEmail({ email = "" }: VerifyEmailProps) {
           return;
         }
 
+        const user = data?.data?.user;
+        if (user) {
+          setVerifiedUser(user);
+        }
+
         // Show celebration confetti modal (Frame 2147225611)
         setShowCelebration(true);
       },
@@ -136,9 +142,10 @@ export default function VerifyEmail({ email = "" }: VerifyEmailProps) {
     );
   };
 
-  const handleProceedToPayment = () => {
+  const handleProceed = () => {
     setShowCelebration(false);
-    router.visit("/payment");
+    // All users redirect to referrals for Phase 1
+    router.visit("/referrals");
   };
 
   const formatTime = (secs: number) => {
@@ -275,9 +282,9 @@ export default function VerifyEmail({ email = "" }: VerifyEmailProps) {
         isOpen={showCelebration}
         onClose={() => setShowCelebration(false)}
         title="Email verified!"
-        subtitle="Your email is confirmed. Pay the ₦5,000 membership fee to activate your account."
-        buttonText="Proceed to Payment"
-        onButtonClick={handleProceedToPayment}
+        subtitle="Your account is verified! Start sharing your referral link and tracking your rewards."
+        buttonText="Go to Referrals"
+        onButtonClick={handleProceed}
       />
     </AuthLayout>
   );

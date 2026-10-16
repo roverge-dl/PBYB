@@ -5,7 +5,7 @@ import { createInertiaApp } from '@inertiajs/react'
 createInertiaApp({
   title: (title) => (title ? `${title} - PBYB Challenge` : 'PBYB Challenge'),
   resolve: (name) => {
-    const pages = import.meta.glob('./pages/**/*.tsx', { eager: true })
+    const pages = import.meta.glob<any>('./pages/**/*.tsx', { eager: true })
     return pages[`./pages/${name}.tsx`]
   },
   setup({ el, App, props }) {

@@ -18,6 +18,9 @@ export default class AuthMiddleware {
       await ctx.auth.authenticateUsing(options.guards, { loginRoute: '/login' })
       return next()
     } catch {
+      if (ctx.request.accepts(['html'])) {
+        return ctx.response.redirect('/login')
+      }
       return ctx.response.status(401).json({
         status: 'fail',
         message: 'Unauthorized access. Please login.',

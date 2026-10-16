@@ -71,6 +71,12 @@ export default function PreChallengeDashboard({ user, referralStats }: PreChalle
 
           <div className="flex items-center gap-3">
             <Link
+              href="/referrals"
+              className="text-xs font-semibold text-slate-600 hover:text-emerald-600 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors"
+            >
+              Referrals
+            </Link>
+            <Link
               href="/leaderboard"
               className="text-xs font-semibold text-slate-600 hover:text-emerald-600 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors"
             >

@@ -58,6 +58,33 @@ export default class ReferralService {
       successfulReferrals,
       pendingReferrals,
       commissionEarned,
+      totalReferrals: successfulReferrals + pendingReferrals,
     }
+  }
+
+  /**
+   * Get list of invited users by this referrer
+   */
+  async getUserReferrals(userId: string) {
+    const referrals = await Referral.query()
+      .where('referrerId', userId)
+      .preload('referred')
+      .orderBy('createdAt', 'desc')
+
+    return referrals.map((r) => {
+      const referredUser = r.referred
+      const fullName = referredUser
+        ? `${referredUser.firstName || ''} ${referredUser.lastName || ''}`.trim() || 'Invited User'
+        : 'Invited User'
+      return {
+        id: r.id,
+        referredName: fullName,
+        referredEmail: referredUser ? referredUser.email : '',
+        initials: referredUser?.initials || 'IU',
+        status: r.status,
+        commissionAmount: r.commissionAmount || 1000,
+        createdAt: r.createdAt ? r.createdAt.toISO() : null,
+      }
+    })
   }
 }

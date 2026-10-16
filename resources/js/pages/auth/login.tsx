@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Head, Link, router } from '@inertiajs/react'
+import { Head, Link, router, usePage } from '@inertiajs/react'
 import { AuthLayout } from '../../components/auth/AuthLayout'
 import {
   Button,
@@ -8,9 +8,23 @@ import {
   SocialButton,
   FormErrorBanner,
 } from '../../components/ui'
+import { GoogleDevModal } from '../../components/modals/GoogleDevModal'
+import { RoleSelectionModal, UserRoleType } from '../../components/modals/RoleSelectionModal'
+import { triggerGoogleAuth } from '../../lib/googleAuth'
 import { useValidator, useLoadingState } from '../../hooks'
 
-export default function Login() {
+interface LoginProps {
+  googleClientId?: string
+}
+
+export default function Login({ googleClientId = '' }: LoginProps) {
+  const { props } = usePage()
+  const activeClientId = googleClientId || (props as any)?.googleClientId || ''
+  const [showGoogleModal, setShowGoogleModal] = useState(false)
+  const [showRoleModal, setShowRoleModal] = useState(false)
+  const [pendingGoogleToken, setPendingGoogleToken] = useState<string | null>(null)
+  const [googleLoading, setGoogleLoading] = useState(false)
+
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -79,8 +93,13 @@ export default function Login() {
         return
       }
 
-      // Login successful -> redirect to dashboard with state-aware lifecycle
-      router.visit('/dashboard/pre-challenge', {
+      const user = data?.data?.user
+      const targetUrl = user?.role === 'nurse'
+        ? '/referrals'
+        : (user?.isPaid ? '/referrals' : '/payment')
+
+      // Login successful -> redirect with state-aware lifecycle
+      router.visit(targetUrl, {
         onSuccess: () => stopLoading('done'),
         onError: () => {
           stopLoading('failed')
@@ -92,6 +111,88 @@ export default function Login() {
       stopLoading('failed')
       setGeneralError(err?.message || 'An unexpected network error occurred. Please try again.')
     }
+  }
+
+  const handleGoogleSuccess = async (idToken: string, role?: UserRoleType) => {
+    setGoogleLoading(true)
+    clearAllErrors()
+
+    try {
+      const res = await fetch('/api/v1/auth/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          idToken,
+          role,
+        }),
+      })
+
+      const data = await res.json().catch(() => null)
+
+      if (!res.ok) {
+        setGeneralError(data?.message || 'Google sign in failed. Please try again.')
+        setGoogleLoading(false)
+        return
+      }
+
+      // Check if this is a new user who must select their role
+      if (data?.data?.requiresRoleSelection) {
+        setPendingGoogleToken(idToken)
+        setShowRoleModal(true)
+        setGoogleLoading(false)
+        return
+      }
+
+      const user = data?.data?.user
+      // Affiliates and pregnant mums go directly to referrals (or payment if unpaid)
+      if (user?.role === 'nurse') {
+        router.visit('/referrals')
+      } else if (user?.isPaid) {
+        router.visit('/referrals')
+      } else {
+        router.visit('/payment')
+      }
+    } catch (err: any) {
+      setGeneralError(err?.message || 'Network error during Google sign in. Please try again.')
+    } finally {
+      setGoogleLoading(false)
+    }
+  }
+
+  const handleRoleConfirm = async (selectedRole: UserRoleType) => {
+    setShowRoleModal(false)
+    if (pendingGoogleToken) {
+      await handleGoogleSuccess(pendingGoogleToken, selectedRole)
+      setPendingGoogleToken(null)
+    }
+  }
+
+  const handleGoogleClick = async () => {
+    clearAllErrors()
+    if (activeClientId) {
+      setGoogleLoading(true)
+      try {
+        const idToken = await triggerGoogleAuth({
+          clientId: activeClientId,
+        })
+        await handleGoogleSuccess(idToken)
+      } catch (err: any) {
+        setGoogleLoading(false)
+        setShowGoogleModal(true)
+      }
+    } else {
+      setShowGoogleModal(true)
+    }
+  }
+
+  const handleDevModalConfirm = async (customEmail: string) => {
+    setShowGoogleModal(false)
+    setGoogleLoading(true)
+    const idToken = await triggerGoogleAuth({
+      defaultEmail: customEmail,
+    })
+    await handleGoogleSuccess(idToken)
   }
 
   return (
@@ -182,11 +283,30 @@ export default function Login() {
         <SocialButton
           provider="google"
           actionText="Sign in with"
-          onClick={() => {
-            alert('Google authentication will redirect to Google OAuth in production.')
-          }}
+          isLoading={googleLoading}
+          disabled={isLoading || googleLoading}
+          onClick={handleGoogleClick}
         />
       </div>
+
+      {/* Google Dev / Fallback Modal */}
+      <GoogleDevModal
+        isOpen={showGoogleModal}
+        onClose={() => setShowGoogleModal(false)}
+        onConfirm={handleDevModalConfirm}
+        isLoading={googleLoading}
+      />
+
+      {/* Role Selection Modal for New Google Users */}
+      <RoleSelectionModal
+        isOpen={showRoleModal}
+        onClose={() => {
+          setShowRoleModal(false)
+          setPendingGoogleToken(null)
+        }}
+        onConfirm={handleRoleConfirm}
+        isLoading={googleLoading}
+      />
     </AuthLayout>
   )
 }

@@ -10,11 +10,16 @@ export default class PaymentController {
   /**
    * Initialize Paystack registration payment
    */
-  async initialize({ request, response }: HttpContext) {
+  async initialize({ request, response, auth }: HttpContext) {
     try {
-      const data = request.only(['email', 'callbackUrl'])
+      const isAuth = await auth.use('web').check()
+      const authUser = isAuth ? auth.use('web').user : null
 
-      const validatedData = await initializePaymentSchema(data)
+      const data = request.only(['email', 'callbackUrl'])
+      const email = (data.email || authUser?.email || '').trim().toLowerCase()
+      const callbackUrl = data.callbackUrl || `${request.header('origin') || ''}/payment`
+
+      const validatedData = await initializePaymentSchema({ email, callbackUrl })
       if (validatedData.status === false) {
         return response.status(409).json({
           status: 'fail',
@@ -23,10 +28,32 @@ export default class PaymentController {
         })
       }
 
+      if (authUser?.role === 'nurse') {
+        return response.ok({
+          status: 'success',
+          message: 'Affiliates are exempt from payment.',
+          data: {
+            alreadyPaid: true,
+            authorizationUrl: '/referrals',
+          },
+        })
+      }
+
+      if (authUser?.isPaid) {
+        return response.ok({
+          status: 'success',
+          message: 'Account membership is already active.',
+          data: {
+            alreadyPaid: true,
+            authorizationUrl: '/dashboard',
+          },
+        })
+      }
+
       const paymentResult = await this.paymentService.initializePayment(
-        data.email,
-        undefined,
-        data.callbackUrl
+        email,
+        authUser?.id,
+        callbackUrl
       )
 
       return response.ok({
@@ -47,11 +74,11 @@ export default class PaymentController {
   /**
    * Verify Paystack registration payment
    */
-  async verify({ request, response }: HttpContext) {
+  async verify({ request, response, auth }: HttpContext) {
     try {
-      const data = request.only(['reference'])
+      const reference = (request.input('reference') || request.input('trxref') || '').trim()
 
-      const validatedData = await verifyPaymentSchema(data)
+      const validatedData = await verifyPaymentSchema({ reference })
       if (validatedData.status === false) {
         return response.status(409).json({
           status: 'fail',
@@ -60,7 +87,7 @@ export default class PaymentController {
         })
       }
 
-      const verificationResult = await this.paymentService.verifyPayment(data.reference)
+      const verificationResult = await this.paymentService.verifyPayment(reference)
 
       if (!verificationResult.verified) {
         return response.badRequest({
@@ -68,6 +95,17 @@ export default class PaymentController {
           message: 'Payment verification failed at gateway.',
           data: verificationResult,
         })
+      }
+
+      // Ensure the user session is authenticated & refreshed with isPaid = true
+      const Transaction = (await import('#models/transaction')).default
+      const User = (await import('#models/user')).default
+      const transaction = await Transaction.findBy('reference', reference)
+      if (transaction?.userId) {
+        const user = await User.find(transaction.userId)
+        if (user) {
+          await auth.use('web').login(user)
+        }
       }
 
       return response.ok({

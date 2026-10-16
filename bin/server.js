@@ -5,6 +5,7 @@
 */
 
 import 'reflect-metadata'
+import '@poppinss/ts-exec'
 import { Ignitor } from '@adonisjs/core'
 
 const APP_ROOT = new URL('../', import.meta.url)

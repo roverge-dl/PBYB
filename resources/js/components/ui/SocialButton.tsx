@@ -7,6 +7,7 @@ export interface SocialButtonProps extends React.ButtonHTMLAttributes<HTMLButton
   provider: SocialProvider
   variant?: 'pill' | 'rounded' | 'icon'
   actionText?: 'Sign in with' | 'Sign up with' | 'Continue with'
+  isLoading?: boolean
 }
 
 export const SocialButton = forwardRef<HTMLButtonElement, SocialButtonProps>(
@@ -18,6 +19,7 @@ export const SocialButton = forwardRef<HTMLButtonElement, SocialButtonProps>(
       actionText = 'Sign in with',
       children,
       disabled,
+      isLoading = false,
       ...props
     },
     ref
@@ -77,7 +79,7 @@ export const SocialButton = forwardRef<HTMLButtonElement, SocialButtonProps>(
     return (
       <button
         ref={ref}
-        disabled={disabled}
+        disabled={disabled || isLoading}
         className={cn(
           'inline-flex items-center justify-center gap-3 border border-neutral-200 bg-white font-medium text-neutral-800 transition-all duration-200 hover:bg-neutral-50 active:bg-neutral-100 hover:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-primary-500/30 text-sm shadow-subtle disabled:opacity-60 disabled:cursor-not-allowed',
           shapeStyles[variant],
@@ -85,9 +87,17 @@ export const SocialButton = forwardRef<HTMLButtonElement, SocialButtonProps>(
         )}
         {...props}
       >
-        {renderIcon()}
+        {isLoading ? (
+          <div className="w-5 h-5 border-2 border-neutral-400 border-t-primary rounded-full animate-spin shrink-0" />
+        ) : (
+          renderIcon()
+        )}
         {!isIconOnly && (
-          <span>{children || `${actionText} ${providerNames[provider]}`}</span>
+          <span>
+            {isLoading
+              ? 'Connecting to Google…'
+              : children || `${actionText} ${providerNames[provider]}`}
+          </span>
         )}
       </button>
     )

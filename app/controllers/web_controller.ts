@@ -1,5 +1,6 @@
 import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
+import env from '#start/env'
 import ReferralService from '#services/referral_service'
 
 @inject()
@@ -9,7 +10,10 @@ export default class WebController {
   /**
    * Render Get Started / Role Selection Page (Onboarding Step 1)
    */
-  async getStarted({ inertia, request }: HttpContext) {
+  async getStarted({ inertia, request, auth, response }: HttpContext) {
+    if (await auth.use('web').check()) {
+      return response.redirect('/referrals')
+    }
     const role = request.input('role', '')
     return (inertia as any).render('auth/get_started', { role })
   }
@@ -17,17 +21,29 @@ export default class WebController {
   /**
    * Render Register Page
    */
-  async register({ inertia, request }: HttpContext) {
+  async register({ inertia, request, auth, response }: HttpContext) {
+    if (await auth.use('web').check()) {
+      return response.redirect('/referrals')
+    }
     const referralCode = request.input('ref', '')
     const role = request.input('role', 'pregnant_mum')
-    return (inertia as any).render('auth/register', { referralCode, role })
+    return (inertia as any).render('auth/register', {
+      referralCode,
+      role,
+      googleClientId: env.get('GOOGLE_WEB_CLIENT_ID', ''),
+    })
   }
 
   /**
    * Render Login / Sign In Page
    */
-  async login({ inertia }: HttpContext) {
-    return (inertia as any).render('auth/login', {})
+  async login({ inertia, auth, response }: HttpContext) {
+    if (await auth.use('web').check()) {
+      return response.redirect('/referrals')
+    }
+    return (inertia as any).render('auth/login', {
+      googleClientId: env.get('GOOGLE_WEB_CLIENT_ID', ''),
+    })
   }
 
   /**
@@ -55,32 +71,59 @@ export default class WebController {
   }
 
   /**
-   * Render Public Referral Leaderboard Page
+   * Render Public / Authenticated Referral Leaderboard Page
    */
-  async leaderboard({ inertia }: HttpContext) {
+  async leaderboard({ inertia, auth }: HttpContext) {
+    const isAuth = await auth.use('web').check()
+    const user = isAuth ? auth.use('web').user : null
     const leaderboard = await this.referralService.getReferralLeaderboard()
-    return (inertia as any).render('referrals/leaderboard', { leaderboard })
+
+    return (inertia as any).render('referrals/leaderboard', {
+      user: user
+        ? {
+            id: user.id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            fullName: user.fullName,
+            email: user.email,
+            role: user.role,
+            referralCode: user.referralCode,
+            isPaid: user.isPaid,
+            initials: user.initials,
+          }
+        : null,
+      leaderboard,
+    })
   }
 
   /**
-   * Render Pre-Challenge Hub
+   * Render Dedicated Referral Page (for Affiliates and Advocates)
    */
-  async preChallengeDashboard({ auth, inertia }: HttpContext) {
-    const user = auth.getUserOrFail()
+  async referrals({ inertia, auth }: HttpContext) {
+    const user = await auth.use('web').authenticate()
     const referralStats = await this.referralService.getUserReferralStats(user.id)
+    const referrals = await this.referralService.getUserReferrals(user.id)
 
-    return (inertia as any).render('dashboard/pre_challenge', {
+    return (inertia as any).render('referrals/index', {
       user: {
         id: user.id,
         firstName: user.firstName,
         lastName: user.lastName,
+        fullName: user.fullName,
         email: user.email,
         role: user.role,
         referralCode: user.referralCode,
         isPaid: user.isPaid,
+        initials: user.initials,
       },
       referralStats,
+      referrals,
     })
+  }
+
+  async preChallengeDashboard({ response }: HttpContext) {
+    // Phase 2: Pregnant mum pre-challenge dashboard is temporarily hidden; redirect everyone to referrals
+    return response.redirect('/referrals')
   }
 
   /**
@@ -98,8 +141,15 @@ export default class WebController {
     const isAuth = await auth.use('web').check()
     const user = isAuth ? auth.use('web').user : null
 
-    if (user?.isPaid && !request.input('force')) {
-      return response.redirect('/dashboard')
+    // Affiliates are not required to pay; redirect them directly to their referral page
+    if (user?.role === 'nurse') {
+      return response.redirect('/referrals')
+    }
+
+    const reference = (request.input('reference') || request.input('trxref') || '').trim()
+
+    if (user?.isPaid && !reference && !request.input('force')) {
+      return response.redirect('/referrals')
     }
 
     return (inertia as any).render('payment/payment', {
@@ -115,32 +165,17 @@ export default class WebController {
           }
         : null,
       email: user?.email || request.input('email', ''),
+      reference,
+      paystackPublicKey: env.get('PAYSTACK_PUBLIC_KEY', ''),
     })
   }
 
   /**
-   * Render Main Dashboard Screen (dashboard 2, Home Page 1, Home Page 2, and dashboard 11)
+   * Render Main Dashboard Screen (Exclusively for Pregnant Mothers)
+   * Note: Hidden for Phase 1, redirected to /referrals. Preserved for Phase 2.
    */
-  async dashboard({ inertia, request, auth }: HttpContext) {
-    const user = await auth.use('web').authenticate()
-    const referralStats = await this.referralService.getUserReferralStats(user.id)
-    const showWelcome = request.input('welcome') === '1' || request.input('paid') === 'true'
-
-    return (inertia as any).render('dashboard/index', {
-      user: {
-        id: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        fullName: user.fullName,
-        email: user.email,
-        role: user.role,
-        referralCode: user.referralCode,
-        isPaid: user.isPaid,
-        initials: user.initials,
-      },
-      referralStats,
-      showWelcome,
-    })
+  async dashboard({ response }: HttpContext) {
+    return response.redirect('/referrals')
   }
 
   /**

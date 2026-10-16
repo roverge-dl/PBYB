@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Head, Link, router } from "@inertiajs/react";
+import { Head, Link, router, usePage } from "@inertiajs/react";
 import { AuthLayout } from "../../components/auth/AuthLayout";
 import {
   Button,
@@ -8,6 +8,8 @@ import {
   SocialButton,
   FormErrorBanner,
 } from "../../components/ui";
+import { GoogleDevModal } from "../../components/modals/GoogleDevModal";
+import { triggerGoogleAuth } from "../../lib/googleAuth";
 import { PencilLine } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useValidator, useLoadingState } from "../../hooks";
@@ -15,12 +17,18 @@ import { useValidator, useLoadingState } from "../../hooks";
 interface RegisterProps {
   referralCode?: string;
   role?: string;
+  googleClientId?: string;
 }
 
 export default function Register({
   referralCode = "",
   role: initialRole = "",
+  googleClientId = "",
 }: RegisterProps) {
+  const { props } = usePage();
+  const activeClientId = googleClientId || (props as any)?.googleClientId || "";
+  const [showGoogleModal, setShowGoogleModal] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   // Determine role from props or URL query parameter
   const getResolvedRole = () => {
     if (initialRole) return initialRole;
@@ -167,6 +175,79 @@ export default function Register({
     }
   };
 
+  // Map UI role to backend allowed roles ('pregnant_mum' | 'nurse')
+  const backendRole =
+    role === "affiliate" || role === "nurse" ? "nurse" : "pregnant_mum";
+
+  const handleGoogleSuccess = async (idToken: string) => {
+    setGoogleLoading(true);
+    clearAllErrors();
+
+    try {
+      const res = await fetch("/api/v1/auth/google", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          idToken,
+          role: backendRole,
+          referralCode: formData.referralCode?.trim() || undefined,
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setGeneralError(data?.message || "Google authentication failed. Please try again.");
+        setGoogleLoading(false);
+        return;
+      }
+
+      const user = data?.data?.user;
+      if (user?.role === "nurse") {
+        router.visit("/referrals");
+      } else if (user?.isPaid) {
+        router.visit("/referrals");
+      } else {
+        router.visit("/payment");
+      }
+    } catch (err: any) {
+      setGeneralError(err?.message || "Network error during Google authentication. Please try again.");
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  const handleGoogleClick = async () => {
+    clearAllErrors();
+    if (activeClientId) {
+      setGoogleLoading(true);
+      try {
+        const idToken = await triggerGoogleAuth({
+          clientId: activeClientId,
+          role: backendRole,
+        });
+        await handleGoogleSuccess(idToken);
+      } catch (err: any) {
+        setGoogleLoading(false);
+        setShowGoogleModal(true);
+      }
+    } else {
+      // In development mode without OAuth Client ID configured, open dev modal
+      setShowGoogleModal(true);
+    }
+  };
+
+  const handleDevModalConfirm = async (customEmail: string) => {
+    setShowGoogleModal(false);
+    setGoogleLoading(true);
+    const idToken = await triggerGoogleAuth({
+      role: backendRole,
+      defaultEmail: customEmail,
+    });
+    await handleGoogleSuccess(idToken);
+  };
+
   const roleLabel =
     role === "affiliate" || role === "nurse"
       ? "I'm an affiliate"
@@ -204,13 +285,20 @@ export default function Register({
         <SocialButton
           provider="google"
           actionText="Sign in with"
-          onClick={() => {
-            alert(
-              "Google authentication will redirect to Google OAuth in production.",
-            );
-          }}
+          isLoading={googleLoading}
+          disabled={isLoading || googleLoading}
+          onClick={handleGoogleClick}
         />
       </div>
+
+      {/* Google Dev / Fallback Modal */}
+      <GoogleDevModal
+        isOpen={showGoogleModal}
+        onClose={() => setShowGoogleModal(false)}
+        onConfirm={handleDevModalConfirm}
+        role={backendRole}
+        isLoading={googleLoading}
+      />
 
       {/* Divider */}
       <div className="relative my-5">

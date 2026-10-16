@@ -21,7 +21,8 @@ export default class PaidMiddleware {
 
     const user = ctx.auth.use('web').user!
 
-    if (!user.isPaid) {
+    // Payment is ONLY required for pregnant mothers. Affiliates and admins are exempt.
+    if (user.role === 'pregnant_mum' && !user.isPaid) {
       if (ctx.request.accepts(['html'])) {
         return ctx.response.redirect('/payment')
       }

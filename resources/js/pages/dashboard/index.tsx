@@ -56,12 +56,11 @@ export default function Dashboard({
   const [copied, setCopied] = useState(false);
 
   const referralCode = user.referralCode || "MEYENE";
-  const referralLink = `yourapp.com/r/${referralCode}`;
+  const origin = typeof window !== "undefined" ? window.location.origin : "https://pbyb.com";
+  const referralLink = `${origin}/register?ref=${referralCode}`;
 
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(
-      window.location.origin + `/register?ref=${referralCode}`
-    );
+    navigator.clipboard.writeText(referralLink);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -139,7 +138,7 @@ export default function Dashboard({
             </Link>
 
             <Link
-              href="/leaderboard"
+              href="/referrals"
               className="flex items-center gap-3.5 px-4 py-3 text-sm font-medium text-neutral-600 rounded-xl hover:bg-neutral-50 hover:text-neutral-900 transition-colors"
             >
               <BookOpen className="w-5 h-5 text-neutral-400" />

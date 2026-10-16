@@ -72,7 +72,7 @@ export default class AuthService {
       user.role = data.role
       user.referralCode = this.generateReferralCode()
       user.referredBy = referrer ? referrer.id : null
-      user.isPaid = false
+      user.isPaid = data.role === 'nurse' // Affiliates are not required to pay
       user.isVerified = false
       user.isActive = true
 
